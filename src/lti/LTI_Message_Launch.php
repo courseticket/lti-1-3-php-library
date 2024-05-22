@@ -209,7 +209,7 @@ class LTI_Message_Launch {
         $key_set_url = $this->registration->get_key_set_url();
 
         // Download key set
-        $public_key_set = json_decode(file_get_contents($key_set_url), true);
+        $public_key_set = json_decode($this->fileGetContents($key_set_url), true);
 
         if (empty($public_key_set)) {
             // Failed to fetch public keyset from URL.
@@ -229,6 +229,11 @@ class LTI_Message_Launch {
 
         // Could not find public key with a matching kid and alg.
         throw new LTI_Exception("Unable to find public key", 1);
+    }
+
+    protected function fileGetContents($key_set_url)
+    {
+        return file_get_contents($key_set_url);
     }
 
     private function cache_launch_data() {
