@@ -1,8 +1,10 @@
 <?php
 namespace IMSGlobal\LTI;
 
-use Firebase\JWT\JWK;
 use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+use phpseclib\Crypt\RSA;
+use phpseclib\Math\BigInteger;
 
 JWT::$leeway = 5;
 
@@ -205,7 +207,7 @@ class LTI_Message_Launch {
         return $this->launch_id;
     }
 
-    private function get_public_key() {
+    protected function get_public_key() {
         $key_set_url = $this->registration->get_key_set_url();
 
         // Download key set
@@ -219,16 +221,25 @@ class LTI_Message_Launch {
         // Find key used to sign the JWT (matches the KID in the header)
         foreach ($public_key_set['keys'] as $key) {
             if ($key['kid'] == $this->jwt['header']['kid']) {
-                try {
-                    return openssl_pkey_get_details(JWK::parseKey($key));
-                } catch(\Exception $e) {
-                    return false;
-                }
+                return $this->rsa_jwk_to_pem($key);
             }
         }
 
         // Could not find public key with a matching kid and alg.
         throw new LTI_Exception("Unable to find public key", 1);
+    }
+
+    // Converted with phpseclib instead of JWK::parseKey(), which php-jwt 4.x lacks and 6.x changed to return a Key.
+    private function rsa_jwk_to_pem(array $jwk) {
+        if (($jwk['kty'] ?? null) !== 'RSA' || empty($jwk['n']) || empty($jwk['e'])) {
+            return false;
+        }
+        $rsa = new RSA();
+        $rsa->loadKey([
+            'n' => new BigInteger(JWT::urlsafeB64Decode($jwk['n']), 256),
+            'e' => new BigInteger(JWT::urlsafeB64Decode($jwk['e']), 256),
+        ]);
+        return $rsa->getPublicKey(RSA::PUBLIC_FORMAT_PKCS8);
     }
 
     protected function fileGetContents($key_set_url)
@@ -298,20 +309,30 @@ class LTI_Message_Launch {
         return $this;
     }
 
-    private function validate_jwt_signature() {
+    protected function validate_jwt_signature() {
         // Fetch public key.
         $public_key = $this->get_public_key();
 
         // Validate JWT signature
         try {
-            JWT::decode($this->request['id_token'], $public_key['key'], array('RS256'));
+            $this->decode_rs256($this->request['id_token'], $public_key);
         } catch(\Exception $e) {
-            var_dump($e);
             // Error validating signature.
             throw new LTI_Exception("Invalid signature on id_token", 1);
         }
 
         return $this;
+    }
+
+    // Key exists since php-jwt 5.5 and is mandatory from 6.0, which dropped the allowed-algorithms argument.
+    private function decode_rs256($jwt, $public_key) {
+        if (empty($public_key)) {
+            throw new \UnexpectedValueException('Public key may not be empty');
+        }
+        if (class_exists(Key::class)) {
+            return JWT::decode($jwt, new Key($public_key, 'RS256'));
+        }
+        return JWT::decode($jwt, $public_key, array('RS256'));
     }
 
     private function validate_deployment() {
