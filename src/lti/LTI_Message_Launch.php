@@ -3,8 +3,8 @@ namespace IMSGlobal\LTI;
 
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
-use phpseclib\Crypt\RSA;
-use phpseclib\Math\BigInteger;
+use phpseclib3\Crypt\RSA;
+use phpseclib3\Math\BigInteger;
 
 JWT::$leeway = 5;
 
@@ -234,12 +234,10 @@ class LTI_Message_Launch {
         if (($jwk['kty'] ?? null) !== 'RSA' || empty($jwk['n']) || empty($jwk['e'])) {
             return false;
         }
-        $rsa = new RSA();
-        $rsa->loadKey([
+        return RSA::loadFormat('Raw', [
             'n' => new BigInteger(JWT::urlsafeB64Decode($jwk['n']), 256),
             'e' => new BigInteger(JWT::urlsafeB64Decode($jwk['e']), 256),
-        ]);
-        return $rsa->getPublicKey(RSA::PUBLIC_FORMAT_PKCS8);
+        ])->toString('PKCS8');
     }
 
     protected function fileGetContents($key_set_url)
